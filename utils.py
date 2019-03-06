@@ -1,6 +1,8 @@
 import numpy as np
 from PIL import Image
 import torchvision
+import torch
+import torch.autograd.variable as Variable
 
 def showImage(imageArray):
     # print(imageArray)
@@ -35,3 +37,22 @@ def standardPreprocess(image):
 
 def rgb2gray(rgb):
     return np.dot(rgb[...,:3], [0.299, 0.587, 0.114]).astype(np.uint8)
+
+# converts an array of ndarrays to a list of tensors
+def toTensorArray(array):
+    xdim = len(array)
+    ydim = len(array[0])
+    output = torch.zeros((xdim,ydim), dtype=float)
+    # output = np.array([torch.from_numpy(array[0])])
+    # print(output)
+    for i, e in enumerate(array):
+        # output = np.append(output, torch.from_numpy(array[0]), axis=0)
+        #
+        output[i] = torch.from_numpy(e)
+        # np.append(output, torch.Tensor(e), axis=0)
+        # output[i] = torch.Tensor(e)
+    # print(output)
+    return output
+
+def toTensor(input):
+    return Variable(torch.from_numpy(input[0]))

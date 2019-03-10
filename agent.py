@@ -9,7 +9,7 @@ from torch.autograd.variable import Variable
 
 
 class Agent(object):
-    def __init__(self, gamma, epsilon, epsilonDecay, epsilonMin, alpha, maxMemSize, actionSpace, targetReplaceCount, episodeEnd):
+    def __init__(self, gamma, epsilon, epsilonDecay, epsilonMin, alpha, maxMemSize, actionSpace, targetReplaceCount):
         self.gamma = gamma
         self.epsilon = epsilon
         self.epsilonDecay = epsilonDecay
@@ -17,11 +17,9 @@ class Agent(object):
         self.alpha = alpha
         self.maxMemSize = maxMemSize
         self.actionSpace = actionSpace
-        self.episodeEnd = episodeEnd
         self.targetReplaceCount = targetReplaceCount
 
         self.steps = 0
-        self.stepCounter = 0
         self.memory = []
         self.memCounter = 0
 
@@ -36,27 +34,22 @@ class Agent(object):
         self.memCounter += 1
 
     def chooseAction(self, observation):
+        isRandom = 0
         randomActionChance = np.random.random()
 
         if randomActionChance < self.epsilon:
             action = self.actionSpace.sample()
+            isRandom = 1
         else:
-            # TODO LEFTOFF
             act = torch.argmax(self.QPolicy.forward(torch.Tensor(observation)))
-            action = act.data.numpy()
+            action = act.data.numpy() #act.data.numpy()
+            print(action, ' ',  end="", flush=True)
 
-        self.steps += 1
-        return action
+        return action, isRandom
 
     def learn(self, batchSize):
-        self.QPolicy.optimizer.zero_grad()
-        # if self.targetReplaceCount is not None and self.stepCounter%self.targetReplaceCount == 0:
-        #     #TODO remove ? not used ?
-        #     self.Qprediction.load_state_dict(self.Qevaluation.state_dict())
 
-        # get minibatch from memory
-        minibatch = []
-
+        # BATCHIN
         if(batchSize > 1):
             if self.memCounter < batchSize:
                 minibatch = self.memory[0:self.memCounter-1]
@@ -71,51 +64,39 @@ class Agent(object):
             return
         replayMemory = np.array(minibatch)
 
-        # memory : []
-
-
-        # train model w/ minibatch
-        # test = replayMemory[:, 0]
-        #TODO instead of [0][0] get all the [:][0]
-        # test = replayMemory[:, 0]
-        # best = u.toTensorArray(test)
+        #PREDICTION
         try:
             policy = self.QPolicy.forward(u.toTensor(replayMemory[:,0])).to(self.QPolicy.device)
-
-            target = self.QTarget.forward(u.toTensor(replayMemory[:,3])).to(self.QTarget.device)
-            maxAction = torch.argmax(target).to(self.QPolicy.device)
+            next = self.QTarget.forward(u.toTensor(replayMemory[:,3])).to(self.QTarget.device)
+            maxAction = torch.argmax(next).to(self.QPolicy.device)
             rewards = torch.Tensor(replayMemory[:,2].astype(np.float))
         except:
-            print("step:", self.stepCounter)
-            top = self.stepCounter
+            print("failed at step:", self.steps)
             exit()
 
+        test = rewards + self.gamma * torch.max(next)
+        target = rewards + self.gamma * torch.max(next) #policy[maxAction]
 
-        # BELLMAN
-        # targetCalc = rewards + self.gamma * torch.max(prediction[1])
-        # maxPrediction= torch.max(prediction[1])
-        # target[:, maxAction] = rewards + self.gamma * torch.max(target[:,1])
-
-        # self.QTarget[:, maxAction] = rewards + self.gamma * torch.max(target)
-        test = rewards + self.gamma * torch.max(target)
-        policy[maxAction] = rewards + self.gamma * torch.max(target)
-
-        #LOSS Function
-        loss = self.QPolicy.loss(target, policy).to(self.QPolicy.device)
+        #LOSS
+        self.QPolicy.optimizer.zero_grad()
+        loss = self.QPolicy.loss(policy, target).to(self.QPolicy.device)
         loss.backward()
         self.QPolicy.optimizer.step()
         # self.Qevaluation.optimizer.zero_grad()
-        self.stepCounter += 1
 
-        if self.stepCounter % self.targetReplaceCount == 0:
-            target = policy
+
+        # TODO every C steps set PTarget to Policy
+        if self.steps % self.targetReplaceCount == 0:
+            stateDict = self.QPolicy.state_dict()
+            self.QTarget.load_state_dict(self.QPolicy.state_dict())
+            #target = policy
 
         # EPSILON DECAY
-        if self.steps > 20:
+        if self.steps > 100:
             if self.epsilon > self.epsilonMin:
                 self.epsilon *= self.epsilonDecay
             else:
                 self.epsilon = self.epsilonMin
 
-
+        self.steps += 1
 

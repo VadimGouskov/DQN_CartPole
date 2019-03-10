@@ -4,16 +4,24 @@ from cartpole.agent import Agent
 import numpy as np
 import time
 from cartpole.utils import saveImage, showImage, standardPreprocess, rgb2gray
+import cartpole.utils as u
 import torch
+import matplotlib.pyplot as plot
 
 
 np.set_printoptions(threshold=np.nan)
 RENDER = False
-scores = []
-epsilonHistory = []
-numberOfGames = 1000
-batchSize = 1
 
+scores = []
+avarageScores = []
+score = 0
+
+randomActionHistory = []
+randomActions = 0
+
+epsilonHistory = []
+numberOfGames = 500
+batchSize = 1
 
 
 env = gym.make('CartPole-v0')
@@ -25,19 +33,32 @@ action = actionSpace.sample()
 print("cuda available: ", torch.cuda.is_available())
 
 
+
+
 agent = Agent(  gamma=0.95,
                 epsilon = 1.0,
-                epsilonDecay=0.99,
+                epsilonDecay=0.995,
                 epsilonMin=0.1,
-                alpha = 0.003,
-                maxMemSize=150,
-                targetReplaceCount=1, # always replace target immediately (after every batch)
+                alpha = 0.001,
+                maxMemSize=900,
+                targetReplaceCount=50,
                 actionSpace=actionSpace,
-                episodeEnd=0.05
               )
+
+def processFrame(observation, action):
+
+    observation_, reward, done, info = env.step(action)
+
+    reward = u.negativeRewardOnTerminal(done, reward)
+
+    observation_ = observation_[:].astype(np.float32)
+    agent.storeTransition(observation, action, reward, observation_)
+
+    return observation_, reward, done
+
 # INITIALIZE AGENT MEMORY TODO: is this still necessary & isn't this already handled in agent.storeTransition?
 while agent.memCounter < agent.maxMemSize:
-    print(agent.memCounter)
+    # print(agent.memCounter)
     observation = env.reset()
     observation = observation[:].astype(np.float32)
     done = False
@@ -46,9 +67,10 @@ while agent.memCounter < agent.maxMemSize:
     while not done:
         #choose random action
         # step and convert image to greyscale
-        observation_, reward, done, info = env.step(actionSpace.sample())
-        observation_ = observation_[:].astype(np.float32)
-        agent.storeTransition(observation, action, reward, observation_)
+        # TODO LEFTOFF save rewards in buffer after the episode and apply future reward discount! (also do this during training)
+        #
+        action = actionSpace.sample()
+        observation_, reward, done = processFrame(observation, action)
 
         observation = observation_
 print("memory initialized")
@@ -56,10 +78,8 @@ print("memory initialized")
 
 
 
-
 for i in range(numberOfGames):
     print("starting game ", str(i), " w/ epsilon ", agent.epsilon )
-    epsilonHistory.append(agent.epsilon)
     done = False
     frameCounter = 0
     observation = env.reset()
@@ -70,81 +90,72 @@ for i in range(numberOfGames):
     while not done:
 
         # Use the chosen action as an index to choose the real action according to observation
-        action = agent.chooseAction(observation)
+        action, isRandom = agent.chooseAction(observation)
+        randomActions += isRandom
 
-        #step, convert to gray and add score
-        observation_, reward, done, info = env.step(action)
-        observation_ = observation_[:].astype(np.float32)
-        scores.append(reward)
-
-        #TODO implement custom reward system
-
-        # store transition and learn
-        agent.storeTransition(observation, action, reward, observation_)
+        observation_, reward, done = processFrame(observation, action)
 
         agent.learn(batchSize)
 
-        #
         observation = observation_
+
+        score += reward
 
         if RENDER:
             env.render()
 
-        #for now now maximum render 150 before next episode frames
+        #for now now maximum render 200 before next episode frames
+        # TODO cartpole resets after 100?
         frameCounter += 1
-        if(frameCounter > 150):
+        if(frameCounter > 200):
             done = True
-            frameCounter = 0
 
-    totalScore = sum(scores)
-    scores = []
-    print("totalscore = ", totalScore)
+    # GENERATE EVALUATION DATA
+    scores.append(score)
+    avarageScores.append( sum(scores) / len(scores))
+    print("episode score = ", score)
+    randomActionRate = randomActions/frameCounter * 100
+    randomActionHistory.append(randomActionRate)
+    epsilonHistory.append(agent.epsilon)
+
+
+    randomActions = 0
+    frameCounter = 0
+    score = 0
+
+# env.close()
+# plot.plot(scores, 'b', epsilonHistory, 'r')
+# plot.show()
 
 env.close()
 
-# for i in range(0, 50 ):
-#     observation_, reward, done, info = env.step([0.0, 1.0, 0.0])
-#     env.render()
-#
-# saveImage(observation_[0:80, 0:95])
+t = np.arange(0, numberOfGames, 1)
+
+fig, ax1 = plot.subplots()
+
+color = 'tab:blue'
+ax1.set_xlabel('episode')
+ax1.set_ylabel('scores', color=color)
+ax1.plot(t, scores, color=color)
+ax1.tick_params(axis='y', labelcolor=color)
+
+# ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
+# color = 'tab:red'
+# ax2.set_ylabel('Random Action Rate', color=color)  # we already handled the x-label with ax1
+# ax2.plot(t, randomActionHistory, color=color)
+# ax2.tick_params(axis='y', labelcolor=color)
+
+ax3 = ax1.twinx()
+color = 'tab:red'
+ax3.plot(t, avarageScores, color=color)
+ax3.set_ylabel('Avarage score', color=color)  # we already handled the x-label with ax1
+ax3.tick_params(axis='y', labelcolor=color)
+
+# ax2.tick_params(axis='y', labelcolor=color)
 
 
-# image = np.array(standardPreprocess(observation_)).astype(np.uint8)
 
-#TODO TRY TO PRINT GREYSCALE ARRAY (FOR SHOW)
+fig.tight_layout()  # otherwise the right y-label is slightly clipped
+plot.show()
 
-# grayImage = []
-# for m in range(len(image)):
-#     grayImage.append()
-#     for n in range(len(image[m])):
-#         grayImage[m][n] = 5
-#
-# print(grayImage[0,0])
-
-
-
-
-
-# agent = Agent
-
-'''TESTING NETWORK'''
-# for i in range(0, 15):
-#     observation_, reward, done, info = env.step([0.0, 1.0, 0.0])
-#     env.render()
-#
-# qnet = Qnetwork(len(discreteActions), 0.01)
-#
-#
-# print(observation_)
-# qnet.forward(observation_[0:80, 0:96])
-
-''' some things'''
-#  96 x 96
-# print("input image is: " + str(len(observation_)) + " x " + str(len(observation_[0])))
-
-# for _ in range(1000):
-#     time.sleep(10)
-#     observation_, reward, done, info = env.step(act)
-#     print
-
-    #env.step(env.action_space.sample()) # take a random action
+exit()

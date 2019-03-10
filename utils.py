@@ -43,16 +43,16 @@ def toTensorArray(array):
     xdim = len(array)
     ydim = len(array[0])
     output = torch.zeros((xdim,ydim), dtype=float)
-    # output = np.array([torch.from_numpy(array[0])])
-    # print(output)
     for i, e in enumerate(array):
-        # output = np.append(output, torch.from_numpy(array[0]), axis=0)
-        #
         output[i] = torch.from_numpy(e)
-        # np.append(output, torch.Tensor(e), axis=0)
-        # output[i] = torch.Tensor(e)
-    # print(output)
     return output
 
 def toTensor(input):
-    return Variable(torch.from_numpy(input[0]))
+    return torch.from_numpy(input[0])
+
+
+def negativeRewardOnTerminal(done, reward):
+    if not done:
+        return reward
+    else:
+        return -reward
